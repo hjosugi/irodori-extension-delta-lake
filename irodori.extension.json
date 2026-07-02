@@ -68,6 +68,14 @@
             "defaultPort": 443,
             "fields": [
               {
+                "id": "catalogType",
+                "label": "Catalog type",
+                "type": "string",
+                "option": "catalogType",
+                "default": "file",
+                "required": true
+              },
+              {
                 "id": "catalogUri",
                 "label": "Catalog URI",
                 "type": "uri",
@@ -78,6 +86,32 @@
                 "label": "Warehouse path",
                 "type": "string",
                 "option": "warehouse"
+              },
+              {
+                "id": "tablePath",
+                "label": "Table path",
+                "type": "string",
+                "option": "tablePath"
+              },
+              {
+                "id": "storageBackend",
+                "label": "Storage backend",
+                "type": "string",
+                "option": "storageBackend",
+                "default": "objectStorage"
+              },
+              {
+                "id": "region",
+                "label": "Cloud region",
+                "type": "string",
+                "option": "region"
+              },
+              {
+                "id": "credentialVending",
+                "label": "Credential vending",
+                "type": "boolean",
+                "option": "credentialVending",
+                "default": false
               }
             ]
           },
@@ -102,6 +136,14 @@
               "profileField": "user"
             },
             {
+              "id": "catalogType",
+              "label": "Catalog type",
+              "type": "string",
+              "option": "catalogType",
+              "default": "file",
+              "required": true
+            },
+            {
               "id": "catalogUri",
               "label": "Catalog URI",
               "type": "uri",
@@ -112,6 +154,32 @@
               "label": "Warehouse path",
               "type": "string",
               "option": "warehouse"
+            },
+            {
+              "id": "tablePath",
+              "label": "Table path",
+              "type": "string",
+              "option": "tablePath"
+            },
+            {
+              "id": "storageBackend",
+              "label": "Storage backend",
+              "type": "string",
+              "option": "storageBackend",
+              "default": "objectStorage"
+            },
+            {
+              "id": "region",
+              "label": "Cloud region",
+              "type": "string",
+              "option": "region"
+            },
+            {
+              "id": "credentialVending",
+              "label": "Credential vending",
+              "type": "boolean",
+              "option": "credentialVending",
+              "default": false
             },
             {
               "id": "readOnly",
