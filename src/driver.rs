@@ -574,3 +574,105 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod delta_tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+
+    /// Builds a minimal but spec-conformant Delta table with two commits:
+    /// commit 0 adds `part-a`, commit 1 removes it and adds `part-b`.
+    /// A transaction-log-aware reader must return only `part-b` rows; a raw
+    /// parquet glob would also resurrect the removed `part-a` rows.
+    fn write_delta_fixture(base: &Path) {
+        let writer = duckdb::Connection::open_in_memory().expect("fixture connection");
+        let log = base.join("_delta_log");
+        fs::create_dir_all(&log).expect("_delta_log dir");
+
+        let parquet = |file: &str, rows: &str| -> u64 {
+            let path = base.join(file);
+            writer
+                .execute_batch(&format!(
+                    "copy ({rows}) to {} (format parquet)",
+                    sql_string(&path.to_string_lossy())
+                ))
+                .expect("write parquet");
+            fs::metadata(&path).expect("parquet metadata").len()
+        };
+        let size_a = parquet(
+            "part-00000-a.parquet",
+            "select * from (values (1::bigint, 'stale-1'), (2::bigint, 'stale-2')) t(id, val)",
+        );
+        let size_b = parquet(
+            "part-00001-b.parquet",
+            "select * from (values (1::bigint, 'current-1'), (2::bigint, 'current-2')) t(id, val)",
+        );
+
+        let schema_string = r#"{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":true,\"metadata\":{}},{\"name\":\"val\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}"#;
+        fs::write(
+            log.join("00000000000000000000.json"),
+            format!(
+                concat!(
+                    "{{\"protocol\":{{\"minReaderVersion\":1,\"minWriterVersion\":2}}}}\n",
+                    "{{\"metaData\":{{\"id\":\"11111111-2222-3333-4444-555555555555\",",
+                    "\"format\":{{\"provider\":\"parquet\",\"options\":{{}}}},",
+                    "\"schemaString\":\"{schema}\",\"partitionColumns\":[],",
+                    "\"configuration\":{{}},\"createdTime\":1700000000000}}}}\n",
+                    "{{\"add\":{{\"path\":\"part-00000-a.parquet\",\"partitionValues\":{{}},",
+                    "\"size\":{size_a},\"modificationTime\":1700000000000,",
+                    "\"dataChange\":true}}}}\n",
+                ),
+                schema = schema_string,
+                size_a = size_a
+            ),
+        )
+        .expect("commit 0");
+        fs::write(
+            log.join("00000000000000000001.json"),
+            format!(
+                concat!(
+                    "{{\"remove\":{{\"path\":\"part-00000-a.parquet\",",
+                    "\"deletionTimestamp\":1700000001000,\"dataChange\":true,",
+                    "\"extendedFileMetadata\":true,\"partitionValues\":{{}},",
+                    "\"size\":{size_a}}}}}\n",
+                    "{{\"add\":{{\"path\":\"part-00001-b.parquet\",\"partitionValues\":{{}},",
+                    "\"size\":{size_b},\"modificationTime\":1700000001000,",
+                    "\"dataChange\":true}}}}\n",
+                ),
+                size_a = size_a,
+                size_b = size_b
+            ),
+        )
+        .expect("commit 1");
+    }
+
+    #[test]
+    fn delta_scan_honors_the_transaction_log() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_delta_fixture(dir.path());
+        let conn = duckdb::Connection::open_in_memory().expect("connection");
+        let request = json!({
+            "method": "connect",
+            "options": {"tablePath": dir.path().to_string_lossy()}
+        });
+        configure_connection(&conn, &request).expect("configure");
+
+        let mut stmt = conn
+            .prepare("select id, val from lakehouse_table order by id")
+            .expect("prepare view query");
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .expect("query view")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect rows");
+        assert_eq!(
+            rows,
+            vec![(1, "current-1".to_string()), (2, "current-2".to_string()),],
+            "delta_scan must return only live files from the transaction log, \
+             never removed ones"
+        );
+    }
+}
